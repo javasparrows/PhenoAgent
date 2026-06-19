@@ -1,0 +1,51 @@
+[project]
+name = "phenoagent"
+version = "0.1.0"
+description = "Three-stage agentic LLM pipeline for clinical phenotyping from Japanese discharge summaries (npj Digital Medicine)"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Yuki Kashiwada", email = "yuki.kashiwada@gmail.com" }]
+keywords = ["clinical-nlp", "phenotyping", "japanese-nlp", "large-language-models", "self-correction"]
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Medical Science Apps.",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "pandas>=2.0",
+    "numpy>=1.24",
+    "pydantic>=2.0",
+    "mlx>=0.5",
+    "mlx-lm>=0.5",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.8",
+]
+
+[project.urls]
+Repository = "https://github.com/javasparrows/PhenoAgent"
+Issues     = "https://github.com/javasparrows/PhenoAgent/issues"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "UP"]
+ignore = ["E501"]
+
+[tool.ruff.format]
+quote-style = "double"

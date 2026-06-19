@@ -1,0 +1,19 @@
+PhenoAgent
+==========
+
+This repository accompanies the paper:
+
+  "PhenoAgent: a three-stage agentic large language model pipeline for
+   clinical phenotyping from Japanese discharge summaries"
+  (npj Digital Medicine, in submission)
+
+It is distributed under the MIT License (see LICENSE).
+
+
+Acknowledgements
+----------------
+
+We thank the physicians of the Tohoku University Emergency Center and of
+Okayama University Hospital for their contributions, medical knowledge, and the
+manual labelling that served as the reference standard for this study. Funding
+information, if any, is provided in the associated publication.
