@@ -69,6 +69,15 @@ uv run python -m src.pipeline.end2end \
 
 The `--label-column` argument is optional and only needed for evaluation against ground-truth labels.
 
+### Optional inference mode: chat template and JSON early stop
+
+By default the pipeline reproduces the submitted generation path: the prompt is passed as a raw string (no chat template) and each call generates until EOS or 512 tokens. Two opt-in flags change this:
+
+- `--chat-template` renders prompts with the model's own chat template (system turns are merged into the user turn when the template has no system role; models without a template, e.g. Preferred-MedLLM-Qwen-72B, fall back to the raw prompt).
+- `--early-stop` ends generation as soon as a complete, parseable JSON value has been produced after any reasoning section (`</think>` or the GPT-OSS analysis channel).
+
+With either flag, per-call runtime (seconds, prompt/generated tokens, finish reason `eos` / `early_stop` / `length`, attempt number) is written to `call_stats.csv` in the log directory. Self-correction retries are unchanged.
+
 ### Batch run (12 paper queries)
 
 ```bash

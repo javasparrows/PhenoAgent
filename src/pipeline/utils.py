@@ -1,8 +1,20 @@
 import json
 import re
+import time
+from dataclasses import dataclass
 
 from mlx_lm import generate, load
 from mlx_lm.sample_utils import make_sampler
+
+#: Per-call output cap of the submitted pipeline.
+MAX_TOKENS = 512
+
+#: Generation-prompt suffix of the harmony format (GPT-OSS).
+HARMONY_ASSISTANT_SUFFIX = "<|start|>assistant"
+
+#: Markers that open the final answer of a harmony response. The second form
+#: appears when the detokenizer drops special tokens.
+HARMONY_FINAL_MARKERS = ("<|channel|>final<|message|>", "assistantfinal")
 
 
 def extract_json_from_response(response: str):
@@ -140,6 +152,237 @@ def run_inference(model, tokenizer, chat, temp=0.0, top_p=1.0) -> str:
         sampler=sampler,
     )
     return response
+
+
+@dataclass(frozen=True)
+class InferenceStats:
+    """Runtime record of a single generation call."""
+
+    seconds: float
+    prompt_tokens: int
+    gen_tokens: int
+    finish_reason: str  # "eos" | "early_stop" | "length"
+    chat_template: bool  # False if requested but the tokenizer has none
+
+
+def _merge_system_into_user(messages: list[dict]) -> list[dict]:
+    """Fold system turns into the first user turn for templates without a
+    system role."""
+    system_text = "\n\n".join(m["content"] for m in messages if m["role"] == "system")
+    rest = [dict(m) for m in messages if m["role"] != "system"]
+    if not system_text:
+        return rest
+    if rest and rest[0]["role"] == "user":
+        return [
+            {"role": "user", "content": f"{system_text}\n\n{rest[0]['content']}"},
+            *rest[1:],
+        ]
+    return [{"role": "user", "content": system_text}, *rest]
+
+
+def build_chat_prompt(tokenizer, chat: list | str) -> str:
+    """Render a prompt with the model's own chat template.
+
+    A plain string becomes a single user turn. If the template rejects a
+    system turn, or silently drops it, the system text is merged into the
+    first user turn instead. GPT-OSS checkpoints ship a harmony-format
+    template, which this renders like any other.
+    """
+    if isinstance(chat, str):
+        messages = [{"role": "user", "content": chat}]
+    else:
+        messages = [dict(m) for m in chat]
+
+    system_texts = [m["content"] for m in messages if m["role"] == "system"]
+    try:
+        rendered = tokenizer.apply_chat_template(
+            messages, add_generation_prompt=True, tokenize=False
+        )
+        if all(text in rendered for text in system_texts):
+            return rendered
+    except Exception:
+        # Jinja templates signal an unsupported role via raise_exception();
+        # the concrete exception class differs between templates.
+        if not system_texts:
+            raise
+    return tokenizer.apply_chat_template(
+        _merge_system_into_user(messages), add_generation_prompt=True, tokenize=False
+    )
+
+
+def reasoning_mode(prompt_text: str) -> str:
+    """Classify how a model separates reasoning from its answer.
+
+    Returns "harmony" for GPT-OSS, "think" when the template opens a
+    <think> block for the model, otherwise "none".
+    """
+    stripped = prompt_text.rstrip()
+    if stripped.endswith(HARMONY_ASSISTANT_SUFFIX):
+        return "harmony"
+    if stripped.endswith("<think>"):
+        return "think"
+    return "none"
+
+
+def strip_reasoning(text: str, mode: str) -> str | None:
+    """Return the answer part of a response, or None while still reasoning."""
+    if mode == "harmony":
+        positions = [
+            (text.rfind(marker), marker)
+            for marker in HARMONY_FINAL_MARKERS
+            if marker in text
+        ]
+        if not positions:
+            return None
+        pos, marker = max(positions)
+        return text[pos + len(marker) :]
+    if mode == "think" or "<think>" in text:
+        if "</think>" not in text:
+            return None
+        return text[text.rfind("</think>") + len("</think>") :]
+    return text
+
+
+def _first_json_span(text: str, start: int) -> int | None:
+    """End index (exclusive) of the bracketed span opening at text[start],
+    or None if it has not closed yet."""
+    closing = {"{": "}", "[": "]"}
+    stack: list[str] = []
+    in_string = False
+    escaped = False
+    for i in range(start, len(text)):
+        char = text[i]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+        elif char == '"':
+            in_string = True
+        elif char in closing:
+            stack.append(closing[char])
+        elif char in "}]":
+            if not stack or stack.pop() != char:
+                return None
+            if not stack:
+                return i + 1
+    return None
+
+
+def has_complete_json(text: str, mode: str = "none") -> bool:
+    """Whether the answer already contains a complete, parseable JSON value.
+
+    Only the first top-level bracketed span is considered, so a nested
+    object never ends generation before its parent closes. A span that
+    closes but does not parse (e.g. bracketed prose) is skipped.
+    """
+    answer = strip_reasoning(text, mode)
+    if answer is None:
+        return False
+    search_from = 0
+    while True:
+        starts = [
+            i
+            for i in (answer.find("{", search_from), answer.find("[", search_from))
+            if i != -1
+        ]
+        if not starts:
+            return False
+        start = min(starts)
+        end = _first_json_span(answer, start)
+        if end is None:
+            return False
+        try:
+            json.loads(answer[start:end])
+            return True
+        except json.JSONDecodeError:
+            search_from = end
+
+
+def _encode_prompt(tokenizer, prompt_text: str) -> list[int]:
+    """Tokenize like mlx_lm.generate, without doubling a templated BOS."""
+    bos = getattr(tokenizer, "bos_token", None)
+    add_special_tokens = bos is None or not prompt_text.startswith(bos)
+    return tokenizer.encode(prompt_text, add_special_tokens=add_special_tokens)
+
+
+def run_inference_with_stats(
+    model,
+    tokenizer,
+    chat,
+    *,
+    use_chat_template: bool = True,
+    early_stop: bool = True,
+    temp: float = 0.0,
+    top_p: float = 1.0,
+    max_tokens: int = MAX_TOKENS,
+) -> tuple[str, InferenceStats]:
+    """Generate a response and record its runtime.
+
+    With use_chat_template=False and early_stop=False this produces the
+    same text as run_inference (the submitted pipeline). Otherwise the
+    prompt is rendered with the model's chat template (falling back to the
+    raw prompt if the tokenizer has none) and/or generation
+    stops as soon as a complete JSON value follows any reasoning section.
+    When a reasoning section (</think> or harmony analysis) has closed,
+    only the answer part is returned.
+
+    Returns:
+        (response text, InferenceStats)
+    """
+    from mlx_lm.generate import stream_generate
+
+    t0 = time.perf_counter()
+    # Base models such as Preferred-MedLLM-Qwen-72B ship no chat template.
+    templated = use_chat_template and bool(getattr(tokenizer, "chat_template", None))
+    if templated:
+        prompt_text = build_chat_prompt(tokenizer, chat)
+    elif isinstance(chat, list):
+        prompt_text = json.dumps(chat, ensure_ascii=False, indent=2)
+    else:
+        prompt_text = chat
+    mode = reasoning_mode(prompt_text) if templated else "none"
+    prompt_ids = _encode_prompt(tokenizer, prompt_text)
+
+    sampler = make_sampler(temp=temp, top_p=top_p)
+    text = ""
+    finish_reason = "length"
+    gen_tokens = 0
+    stream = stream_generate(
+        model, tokenizer, prompt=prompt_ids, max_tokens=max_tokens, sampler=sampler
+    )
+    try:
+        for response in stream:
+            text += response.text
+            gen_tokens = response.generation_tokens
+            if response.finish_reason is not None:
+                finish_reason = "eos" if response.finish_reason == "stop" else "length"
+                break
+            if (
+                early_stop
+                and ("}" in response.text or "]" in response.text)
+                and has_complete_json(text, mode)
+            ):
+                finish_reason = "early_stop"
+                break
+    finally:
+        stream.close()
+    seconds = time.perf_counter() - t0
+
+    if templated:
+        answer = strip_reasoning(text, mode)
+        if answer is not None:
+            text = answer
+    stats = InferenceStats(
+        seconds=seconds,
+        prompt_tokens=len(prompt_ids),
+        gen_tokens=gen_tokens,
+        finish_reason=finish_reason,
+        chat_template=templated,
+    )
+    return text, stats
 
 
 def build_first_prompt(query: str) -> list:

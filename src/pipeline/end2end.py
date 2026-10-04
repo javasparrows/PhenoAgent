@@ -1,9 +1,11 @@
 import argparse
+import dataclasses
 import importlib
 import json
 import logging
 import re
 import time
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
@@ -11,10 +13,12 @@ import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field
 
 from .utils import (
+    InferenceStats,
     extract_json_from_response,
     load_model_and_tokenizer,
     remove_before_think,
     run_inference,
+    run_inference_with_stats,
 )
 
 # ---------------------------------------------------------------------------
@@ -342,6 +346,8 @@ def generate_structured_output_with_retry(
     chat_prompt: list | str,
     max_retries: int = 3,
     temp: float = 0.0,
+    inference_options: dict | None = None,
+    on_call: Callable[[int, InferenceStats], None] | None = None,
 ) -> tuple:
     """Generate structured output via Pydantic validation, retrying on failure.
 
@@ -354,6 +360,11 @@ def generate_structured_output_with_retry(
         chat_prompt: Chat-style prompt (list of dicts or plain string).
         max_retries: Maximum number of attempts (default 3).
         temp: Sampling temperature (default 0.0).
+        inference_options: None reproduces the submitted pipeline. Otherwise
+            keyword arguments for run_inference_with_stats (use_chat_template,
+            early_stop).
+        on_call: Called with (attempt number, InferenceStats) after every
+            generation call; only used together with inference_options.
 
     Returns:
         tuple: (parsed_result, retry_count, success, dynamic_prompt_resolved)
@@ -398,9 +409,21 @@ def generate_structured_output_with_retry(
                 current_chat_prompt = chat_prompt
 
             # Run inference
-            response = run_inference(
-                model, tokenizer, current_chat_prompt, temp=temp, top_p=1.0
-            )
+            if inference_options is None:
+                response = run_inference(
+                    model, tokenizer, current_chat_prompt, temp=temp, top_p=1.0
+                )
+            else:
+                response, call_stats = run_inference_with_stats(
+                    model,
+                    tokenizer,
+                    current_chat_prompt,
+                    temp=temp,
+                    top_p=1.0,
+                    **inference_options,
+                )
+                if on_call is not None:
+                    on_call(retry_count + 1, call_stats)
             response = extract_text_before_endoftext(response)
             response = remove_before_think(response)
 
@@ -567,7 +590,9 @@ def check_all_true(bool_list: list[bool]) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def main(filter_label_true: bool = False) -> None:
+def main(
+    filter_label_true: bool = False, inference_options: dict | None = None
+) -> None:
     """Main processing loop.
 
     Loads model, runs first-stage inference, reads CSV data, and runs
@@ -577,6 +602,9 @@ def main(filter_label_true: bool = False) -> None:
     Args:
         filter_label_true: When True, only process rows whose ground-truth
             label is True.
+        inference_options: None reproduces the submitted pipeline. Otherwise
+            keyword arguments for run_inference_with_stats; per-call runtime
+            is then written to LOG_DIR/call_stats.csv.
     """
     total_start_time = time.time()
 
@@ -612,7 +640,17 @@ def main(filter_label_true: bool = False) -> None:
     logger.info(text_2_1)
     print(f"{COLOR_BLUE}--- {text_2_1} ---{COLOR_RESET}")
     chat_first = build_first_prompt(QUERY)
-    response1 = run_inference(model, tokenizer, chat_first, temp=0.0, top_p=1.0)
+    call_rows: list[dict] = []
+    if inference_options is None:
+        response1 = run_inference(model, tokenizer, chat_first, temp=0.0, top_p=1.0)
+    else:
+        response1, first_stats = run_inference_with_stats(
+            model, tokenizer, chat_first, temp=0.0, top_p=1.0, **inference_options
+        )
+        call_rows.append(
+            {"stage": "decomposition", "idx": -1, "row_id": "", "attempt": 1}
+            | dataclasses.asdict(first_stats)
+        )
     response1 = extract_text_before_endoftext(response1)
     response1 = remove_before_think(response1)
     text_2_2 = f"[STEP2] First inference result:\n{response1}"
@@ -787,6 +825,22 @@ def main(filter_label_true: bool = False) -> None:
             structured_question=response1, document_text=str_one_document
         )
 
+        def record_call(
+            attempt: int,
+            stats: InferenceStats,
+            idx: int = idx,
+            row_id: object = row_id,
+        ) -> None:
+            call_rows.append(
+                {
+                    "stage": "evaluation",
+                    "idx": idx,
+                    "row_id": row_id,
+                    "attempt": attempt,
+                }
+                | dataclasses.asdict(stats)
+            )
+
         # Structured output with retry (max 3 attempts)
         (
             parsed_json,
@@ -794,7 +848,13 @@ def main(filter_label_true: bool = False) -> None:
             json_parse_success,
             dynamic_prompt_resolved,
         ) = generate_structured_output_with_retry(
-            model, tokenizer, chat_second, max_retries=3, temp=0.0
+            model,
+            tokenizer,
+            chat_second,
+            max_retries=3,
+            temp=0.0,
+            inference_options=inference_options,
+            on_call=record_call,
         )
 
         # Build response string for logging
@@ -907,6 +967,10 @@ def main(filter_label_true: bool = False) -> None:
             ],
         )
         result_df.to_csv(str(Path(LOG_DIR) / "result_df.csv"), index=False)
+        if call_rows:
+            pd.DataFrame(call_rows).to_csv(
+                str(Path(LOG_DIR) / "call_stats.csv"), index=False
+            )
 
     step4_end = time.time()
     logger.info(f"[STEP4] All loop done in {step4_end - step4_start:.3f} seconds\n")
@@ -975,6 +1039,18 @@ if __name__ == "__main__":
         action="store_true",
         help="Only process rows whose ground-truth label is True",
     )
+    parser.add_argument(
+        "--chat-template",
+        action="store_true",
+        help="Render prompts with the model's chat template "
+        "(default: raw prompt, as in the submitted pipeline)",
+    )
+    parser.add_argument(
+        "--early-stop",
+        action="store_true",
+        help="Stop generation once a complete JSON value has been produced "
+        "(default: run to EOS or 512 tokens, as in the submitted pipeline)",
+    )
     args = parser.parse_args()
 
     # Set global dataset
@@ -1008,5 +1084,12 @@ if __name__ == "__main__":
     # Set up logging
     setup_logging()
 
+    # New inference mode is opt-in; without flags the submitted path runs.
+    INFERENCE_OPTIONS = (
+        {"use_chat_template": args.chat_template, "early_stop": args.early_stop}
+        if (args.chat_template or args.early_stop)
+        else None
+    )
+
     # Run main processing
-    main(filter_label_true=FILTER_LABEL_TRUE)
+    main(filter_label_true=FILTER_LABEL_TRUE, inference_options=INFERENCE_OPTIONS)
