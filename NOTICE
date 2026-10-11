@@ -3,8 +3,8 @@ PhenoAgent
 
 This repository accompanies the paper:
 
-  "PhenoAgent: a three-stage agentic large language model pipeline for
-   clinical phenotyping from Japanese discharge summaries"
+  "PhenoAgent: agentic LLM framework for phenotyping electronic health
+   records via structured query decomposition and self-correction"
   (npj Digital Medicine, in submission)
 
 It is distributed under the MIT License (see LICENSE).

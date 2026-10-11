@@ -11,6 +11,7 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Medical Science Apps.",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
@@ -18,8 +19,13 @@ dependencies = [
     "pandas>=2.0",
     "numpy>=1.24",
     "pydantic>=2.0",
-    "mlx>=0.5",
-    "mlx-lm>=0.5",
+    # Pinned to the versions used for the paper's MLX runs; other versions
+    # (even mlx 0.29.2) can change the generated outputs.
+    "mlx==0.29.0",
+    "mlx-metal==0.29.0",
+    "mlx-lm==0.27.1",
+    # Tokenizer backend of mlx-lm; version in the paper environment.
+    "transformers==4.56.1",
 ]
 
 [project.optional-dependencies]
