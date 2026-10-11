@@ -37,7 +37,7 @@ Target environment: Apple Silicon with the MLX backend. `uv sync` uses Python 3.
 ### Environment used in the paper
 
 - Hardware: Apple M4 Max MacBook Pro, 128 GB unified memory
-- Software: Python 3.13, mlx 0.29.0, mlx-metal 0.29.0, mlx-lm 0.27.1 (pinned in `pyproject.toml` / `uv.lock`)
+- Software: Python 3.13, mlx 0.29.0, mlx-metal 0.29.0, mlx-lm 0.27.1, transformers 4.56.1 (pinned in `pyproject.toml` / `uv.lock`)
 - Quantization: 8-bit affine, group size 64 (see [Models](#models))
 - Decoding: greedy (temperature 0) via `mlx_lm.generate`, up to 512 new tokens per call
 
