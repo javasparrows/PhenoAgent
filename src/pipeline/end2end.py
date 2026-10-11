@@ -34,6 +34,10 @@ COLOR_ORANGE = "\033[38;5;208m"
 # ---------------------------------------------------------------------------
 # Dataset configuration
 # ---------------------------------------------------------------------------
+# Column names follow the Japanese EHR export schema and must stay Japanese:
+# 文書番号 = document number, カルテNo = medical record number, 主訴 = chief
+# complaint, 入院までの経過 = history before admission, 入院中経過 = hospital
+# course, 退院時所見 = findings at discharge.
 DATASET_CONFIG = {
     "tohoku": {
         "patient_id_col": "文書番号",
@@ -50,6 +54,8 @@ DATASET_CONFIG = {
 # ---------------------------------------------------------------------------
 # Label pairs (unified standard: numbered prefix)
 # ---------------------------------------------------------------------------
+# Verbatim Japanese queries (sent to the LLM) and label columns for paper
+# queries Q1-Q12; see the README for the English query names.
 EXAMPLE_QUERIES = [
     {
         "no": 1,
@@ -119,8 +125,8 @@ EXAMPLE_QUERIES = [
 
 
 class MedicalFieldResult(BaseModel):
-    value: bool = Field(description="該当するかどうかの真偽値")
-    reason: str = Field(description="その判断の詳細な理由")
+    value: bool = Field(description="Whether the criterion is met (true/false)")
+    reason: str = Field(description="Detailed reason for the judgement")
 
 
 class MedicalAnalysisResult(BaseModel):
@@ -457,6 +463,8 @@ def generate_structured_output_with_retry(
                         field_result = MedicalFieldResult(**value)
                         validated_fields[key] = field_result.model_dump()
                     elif isinstance(value, bool):
+                        # Placeholder reason ("inference result") kept in Japanese
+                        # because it is stored with the model's Japanese output.
                         field_result = MedicalFieldResult(
                             value=value, reason="推論結果"
                         )
@@ -900,7 +908,7 @@ def main(
             f"{COLOR_YELLOW}json_parse_success:{COLOR_RESET} "
             f"{parse_success_msg}{retry_msg}"
         )
-        result_str = "正解" if result_all_true == label else "不正解"
+        result_str = "Correct" if result_all_true == label else "Incorrect"
         output_str = (
             f"{COLOR_YELLOW}check_all_true:{COLOR_RESET} {bool_list} -> "
             f"{result_all_true} | {COLOR_YELLOW}Ground truth:{COLOR_RESET} "
