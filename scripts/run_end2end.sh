@@ -52,7 +52,7 @@ CONFIGS=(
     "config_ca_deepseek32B.py"
     "config_deepseek70B.py"
     "config_gpt_oss_20b.py"
-    "config_llama31_swallow_70b_instruct.py"
+    "config_llama33_swallow_70b_instruct.py"
     "config_preferred_qwen.py"
 )
 
