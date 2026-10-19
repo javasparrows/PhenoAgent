@@ -7,5 +7,5 @@
 
 MODEL_PATH = "cyberagent/calm3-22b-chat"
 LOG_DIR_SUFFIX = "CALM3-22B"
-PROMPT_MODULE_FIRST = "prompts.calm3.prompt_first"
-PROMPT_MODULE_SECOND = "prompts.calm3.prompt_second"
+PROMPT_MODULE_FIRST = "src.pipeline.utils"
+PROMPT_MODULE_SECOND = "src.pipeline.utils"

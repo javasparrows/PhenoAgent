@@ -7,5 +7,5 @@
 
 MODEL_PATH = "pfnet/Preferred-MedLLM-Qwen-72B"
 LOG_DIR_SUFFIX = "MedLLM-72B"
-PROMPT_MODULE_FIRST = "prompts.preferred_qwen.prompt_first"
-PROMPT_MODULE_SECOND = "prompts.preferred_qwen.prompt_second"
+PROMPT_MODULE_FIRST = "src.pipeline.utils"
+PROMPT_MODULE_SECOND = "src.pipeline.utils"

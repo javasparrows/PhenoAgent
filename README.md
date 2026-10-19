@@ -17,8 +17,7 @@ Inference runs locally on a single Apple Silicon workstation via MLX -- no exter
 ## Repository structure
 
 ```
-src/pipeline/      Three-stage agentic pipeline (end2end.py + utils.py)
-prompts/           Per-model Japanese prompt templates
+src/pipeline/      Three-stage agentic pipeline (end2end.py + utils.py, including the prompts)
 configs/           Per-model configurations (HuggingFace model paths)
 scripts/           generate_dummy_data.py, run_pipeline.sh, run_end2end.sh
 data_sample/       Synthetic dummy data (see "Quick start")
@@ -78,14 +77,14 @@ uv run python -m src.pipeline.end2end \
 
 The `--label-column` argument is optional and only needed for evaluation against ground-truth labels.
 
-### Optional inference mode: chat template and JSON early stop
+### Prompts and inference options
 
-By default the pipeline reproduces the submitted generation path: the prompt is passed as a raw string (no chat template) and each call generates until EOS or 512 tokens. Two opt-in flags change this:
+All models share the same prompts, defined in `src/pipeline/utils.py` (`build_first_prompt`, `build_second_prompt`) and `src/pipeline/end2end.py` (self-correction reminders); they match Supplementary Boxes 4–6 of the paper (English translations: Supplementary Boxes 1–3). Each prompt consists of a system message and a user message, which are rendered with the model's own chat template (system turns are merged into the user turn when the template has no system role; models without a template, e.g. Preferred-MedLLM-Qwen-72B, receive the two messages joined as plain text). Each call generates until EOS or 512 tokens. Two optional flags change this:
 
-- `--chat-template` renders prompts with the model's own chat template (system turns are merged into the user turn when the template has no system role; models without a template, e.g. Preferred-MedLLM-Qwen-72B, fall back to the raw prompt).
+- `--no-chat-template` passes the system and user messages joined as plain text instead of using the chat template.
 - `--early-stop` ends generation as soon as a complete, parseable JSON value has been produced after any reasoning section (`</think>` or the GPT-OSS analysis channel).
 
-With either flag, per-call runtime (seconds, prompt/generated tokens, finish reason `eos` / `early_stop` / `length`, attempt number) is written to `call_stats.csv` in the log directory. Self-correction retries are unchanged.
+Per-call runtime (seconds, prompt/generated tokens, finish reason `eos` / `early_stop` / `length`, attempt number) is written to `call_stats.csv` in the log directory. Self-correction retries are unchanged.
 
 ### Batch run (12 paper queries)
 

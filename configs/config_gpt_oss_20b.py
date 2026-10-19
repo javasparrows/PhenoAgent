@@ -5,5 +5,5 @@
 
 MODEL_PATH = "lmstudio-community/gpt-oss-20b-MLX-8bit"
 LOG_DIR_SUFFIX = "GPT-OSS-20B"
-PROMPT_MODULE_FIRST = "prompts.gpt_oss_20b.prompt_first"
-PROMPT_MODULE_SECOND = "prompts.gpt_oss_20b.prompt_second"
+PROMPT_MODULE_FIRST = "src.pipeline.utils"
+PROMPT_MODULE_SECOND = "src.pipeline.utils"
