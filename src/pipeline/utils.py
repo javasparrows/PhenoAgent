@@ -134,11 +134,7 @@ def run_inference(model, tokenizer, chat, temp=0.0, top_p=1.0) -> str:
     Returns:
         The generated response string.
     """
-    if isinstance(chat, list):
-        # Convert chat-format list to a JSON string
-        chat_str = json.dumps(chat, ensure_ascii=False, indent=2)
-    else:
-        chat_str = chat
+    chat_str = join_messages(chat) if isinstance(chat, list) else chat
 
     sampler = make_sampler(temp=temp, top_p=top_p)
 
@@ -178,6 +174,14 @@ def _merge_system_into_user(messages: list[dict]) -> list[dict]:
             *rest[1:],
         ]
     return [{"role": "user", "content": system_text}, *rest]
+
+
+def join_messages(messages: list[dict]) -> str:
+    """Join chat messages into one plain-text prompt, without role labels.
+
+    Used when a model is run without a chat template.
+    """
+    return "\n\n".join(m["content"] for m in messages)
 
 
 def build_chat_prompt(tokenizer, chat: list | str) -> str:
@@ -321,11 +325,12 @@ def run_inference_with_stats(
 ) -> tuple[str, InferenceStats]:
     """Generate a response and record its runtime.
 
-    With use_chat_template=False and early_stop=False this produces the
-    same text as run_inference (the submitted pipeline). Otherwise the
-    prompt is rendered with the model's chat template (falling back to the
-    raw prompt if the tokenizer has none) and/or generation
-    stops as soon as a complete JSON value follows any reasoning section.
+    With use_chat_template=True the prompt is rendered with the model's chat
+    template, so system and user messages keep their roles (models without
+    a template receive the messages joined as plain text). With
+    use_chat_template=False and early_stop=False this produces the same text
+    as run_inference. With early_stop=True generation stops as soon as a
+    complete JSON value follows any reasoning section.
     When a reasoning section (</think> or harmony analysis) has closed,
     only the answer part is returned.
 
@@ -340,7 +345,7 @@ def run_inference_with_stats(
     if templated:
         prompt_text = build_chat_prompt(tokenizer, chat)
     elif isinstance(chat, list):
-        prompt_text = json.dumps(chat, ensure_ascii=False, indent=2)
+        prompt_text = join_messages(chat)
     else:
         prompt_text = chat
     mode = reasoning_mode(prompt_text) if templated else "none"
@@ -388,7 +393,7 @@ def run_inference_with_stats(
 def build_first_prompt(query: str) -> list:
     """Build the first-stage prompt (Semantic Parser) in chat format.
 
-    Matches Supplementary Box 1 verbatim.
+    Matches Supplementary Box 4 (English translation: Supplementary Box 1).
     """
     prompt_template = f"""以下はまず出力例を示しています。
 心不全の患者の中で、肺水腫の患者は何人？"という質問に答えるために最低限必要な医学的な構造化項目を書いてください。json形式で出力してください。
@@ -429,7 +434,7 @@ def build_first_prompt(query: str) -> list:
 def build_second_prompt(structured_question: str, document_text: str) -> list:
     """Build the second-stage prompt (Semantic Evaluator) in chat format.
 
-    Matches Supplementary Box 2 verbatim.
+    Matches Supplementary Box 5 (English translation: Supplementary Box 2).
     """
     prompt_template = (
         "json_for_structuring:\n"
@@ -453,7 +458,7 @@ def build_second_prompt(structured_question: str, document_text: str) -> list:
         "json_for_structuringのそれぞれについて、ehr_dataに該当するかどうかをtrueかfalseで出力してください。\n"
         "また、その理由も書いてください。\n"
         "回答は上の例のように、トップレベルが1つのJSONオブジェクトとなるように出力してください。\n"
-        "回答："
+        "回答:"
     )
 
     formatted_prompt = (

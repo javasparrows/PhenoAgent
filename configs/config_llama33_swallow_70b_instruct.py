@@ -5,5 +5,5 @@
 
 MODEL_PATH = "mlx-community/Llama-3.3-Swallow-70B-Instruct-v0.4-8bit"
 LOG_DIR_SUFFIX = "Llama-3.3-Swallow-70B"
-PROMPT_MODULE_FIRST = "prompts.llama33_swallow_70b_instruct.prompt_first"
-PROMPT_MODULE_SECOND = "prompts.llama33_swallow_70b_instruct.prompt_second"
+PROMPT_MODULE_FIRST = "src.pipeline.utils"
+PROMPT_MODULE_SECOND = "src.pipeline.utils"

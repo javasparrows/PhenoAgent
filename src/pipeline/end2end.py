@@ -366,16 +366,17 @@ def generate_structured_output_with_retry(
         chat_prompt: Chat-style prompt (list of dicts or plain string).
         max_retries: Maximum number of attempts (default 3).
         temp: Sampling temperature (default 0.0).
-        inference_options: None reproduces the submitted pipeline. Otherwise
-            keyword arguments for run_inference_with_stats (use_chat_template,
-            early_stop).
+        inference_options: Keyword arguments for run_inference_with_stats
+            (use_chat_template, early_stop). None uses run_inference
+            (no chat template, no runtime record).
         on_call: Called with (attempt number, InferenceStats) after every
             generation call; only used together with inference_options.
 
     Returns:
         tuple: (parsed_result, retry_count, success, dynamic_prompt_resolved)
     """
-    # Self-correction retry prompts — matches Supplementary Box 3 verbatim.
+    # Self-correction retry prompts — match Supplementary Box 6
+    # (English translation: Supplementary Box 3).
     retry_prompt_additions = [
         "",  # First attempt uses the original prompt as-is
         "\n\n再確認：必ずJSON形式の出力で、正確に2つの診断項目のみを含めてください。",
@@ -403,7 +404,9 @@ def generate_structured_output_with_retry(
                         original_chat_prompt + retry_prompt_additions[retry_count]
                     )
                 else:
-                    current_chat_prompt = original_chat_prompt.copy()
+                    # Copy the messages so each attempt appends only its own
+                    # reminder to the original prompt.
+                    current_chat_prompt = [dict(m) for m in original_chat_prompt]
                     current_chat_prompt[-1]["content"] += retry_prompt_additions[
                         retry_count
                     ]
@@ -610,9 +613,9 @@ def main(
     Args:
         filter_label_true: When True, only process rows whose ground-truth
             label is True.
-        inference_options: None reproduces the submitted pipeline. Otherwise
-            keyword arguments for run_inference_with_stats; per-call runtime
-            is then written to LOG_DIR/call_stats.csv.
+        inference_options: Keyword arguments for run_inference_with_stats;
+            per-call runtime is then written to LOG_DIR/call_stats.csv. None
+            uses run_inference (no chat template, no runtime record).
     """
     total_start_time = time.time()
 
@@ -1048,16 +1051,16 @@ if __name__ == "__main__":
         help="Only process rows whose ground-truth label is True",
     )
     parser.add_argument(
-        "--chat-template",
+        "--no-chat-template",
         action="store_true",
-        help="Render prompts with the model's chat template "
-        "(default: raw prompt, as in the submitted pipeline)",
+        help="Pass the system and user messages as one plain-text prompt "
+        "instead of rendering them with the model's chat template",
     )
     parser.add_argument(
         "--early-stop",
         action="store_true",
         help="Stop generation once a complete JSON value has been produced "
-        "(default: run to EOS or 512 tokens, as in the submitted pipeline)",
+        "(default: run to EOS or 512 tokens)",
     )
     args = parser.parse_args()
 
@@ -1092,12 +1095,11 @@ if __name__ == "__main__":
     # Set up logging
     setup_logging()
 
-    # New inference mode is opt-in; without flags the submitted path runs.
-    INFERENCE_OPTIONS = (
-        {"use_chat_template": args.chat_template, "early_stop": args.early_stop}
-        if (args.chat_template or args.early_stop)
-        else None
-    )
+    # Prompts are rendered with each model's chat template unless disabled.
+    INFERENCE_OPTIONS = {
+        "use_chat_template": not args.no_chat_template,
+        "early_stop": args.early_stop,
+    }
 
     # Run main processing
     main(filter_label_true=FILTER_LABEL_TRUE, inference_options=INFERENCE_OPTIONS)
