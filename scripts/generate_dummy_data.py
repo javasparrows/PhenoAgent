@@ -35,7 +35,7 @@ METHODS: list[str] = [
     "CALM3-22B",
     "DeepSeek-32B",
     "DeepSeek-70B",
-    "Llama-3.1-Swallow-70B",
+    "Llama-3.3-Swallow-70B",
     "MedLLM-72B",
     "ensembled",
 ]
@@ -70,7 +70,7 @@ METHOD_CORRELATION: dict[str, float] = {
     "CALM3-22B": 0.60,
     "DeepSeek-32B": 0.65,
     "DeepSeek-70B": 0.70,
-    "Llama-3.1-Swallow-70B": 0.70,
+    "Llama-3.3-Swallow-70B": 0.70,
     "MedLLM-72B": 0.72,
     "ensembled": 0.78,
 }
